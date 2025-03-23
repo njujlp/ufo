@@ -23,8 +23,8 @@
 #include "ufo/ObsBias.h"
 #include "ufo/ObsDiagnostics.h"
 
-#include "rttov/wrapper/Profile.h"
-#include "rttov/wrapper/RttovSafe.h"
+#include "RttovProfile.h"
+#include "RttovSafe.h"
 
 namespace ioda {
   class ObsSpace;

@@ -97,6 +97,14 @@ else( ${rttov_FOUND} )
     message(STATUS "RTTOV NOT FOUND; Excluding RTTOV Radiance Observation Operator")
 endif( ${rttov_FOUND} )
 
+# RTTOV-V14
+find_package( rttov14 14.0 QUIET )
+if( ${rttov14_FOUND} )
+    message(STATUS "RTTOV-V14 FOUND; Including RTTOV-V14 Radiance Observation Operator (${rttov14_VERSION})")
+else( ${rttov14_FOUND} )
+    message(STATUS "RTTOV-V14 NOT FOUND; Excluding RTTOV-V14 Radiance Observation Operator")
+endif( ${rttov14_FOUND} )
+
 # GSW
 find_package( gsw QUIET )
 if( ${gsw_FOUND} )

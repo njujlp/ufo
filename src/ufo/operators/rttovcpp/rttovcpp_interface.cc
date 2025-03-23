@@ -10,6 +10,7 @@
 #include <ostream>
 #include <string>
 #include <vector>
+#include <cmath> // or <math.h>
 
 #include "ioda/ObsSpace.h"
 #include "ioda/ObsVector.h"
@@ -23,8 +24,8 @@
 #include "ufo/ObsBias.h"
 #include "ufo/ObsDiagnostics.h"
 
-#include "rttov/wrapper/Profile.h"
-#include "rttov/wrapper/RttovSafe.h"
+#include "RttovProfile.h"
+#include "RttovSafe.h"
 
 namespace ioda {
   class ObsSpace;
@@ -67,17 +68,22 @@ void rttovcpp_interface(const GeoVaLs & geovals, const ioda::ObsSpace & odb_,
   // 1.1 general setting for all sensors: clear-sky
 
   aRttov_.setFileCoef(CoefFileName);
-  aRttov_.options.setAddInterp(true);       // input P differ from coef file levels
+  //aRttov_.options.setAddInterp(true);       // RTTOV14 removed this method
   aRttov_.options.setVerboseWrapper(true);  // more output info
   aRttov_.options.setCO2Data(false);
   aRttov_.options.setStoreRad(true);
-  aRttov_.options.setDoCheckinput(false);   // turn this off, or many failing profiles?
-  aRttov_.options.setSwitchrad(true);       // use radiance_k%bt(:)=1 input perturbation
+  //aRttov_.options.setDoCheckinput(false);   // RTTOV14 removed this method
+  //aRttov_.options.setSwitchrad(true);       // RTTOV14 removed this method
+  aRttov_.options.setHydrometeors(false); // Deactivate cloud simulations
+  aRttov_.options.setOverlapParam(rttov::cloud_overlap_2col_weighted); // Hydro-weighted 2-col overlap
+  aRttov_.options.setStoreEmisRefl(true); // Enable emissivity/reflectance retrieval
+
 
   // 1.2 for Microwave Sensors
-  aRttov_.options.setFastemVersion(6);      // emissivity over sea
-  aRttov_.options.setSupplyFoamFraction(false);
-  aRttov_.options.setApplyBandCorrection(true);
+  //aRttov_.options.setFastemVersion(6);      // RTTOV14 removed this method
+  //aRttov_.options.setSupplyFoamFraction(false); //RTTOV14 removed this method
+  //aRttov_.options.setUseFoamFraction(false);
+  //aRttov_.options.setApplyBandCorrection(true); // RTTOV14 removed this method
 
   // 1.3 Load coef for subset channels of an instrument
   //-------------------------------------------------
@@ -95,10 +101,11 @@ void rttovcpp_interface(const GeoVaLs & geovals, const ioda::ObsSpace & odb_,
   nlevels   = geovals.nlevs(oops::Variable{"air_temperature"});   // set private data member
   std::size_t nprofiles = odb_.nlocs();
   std::size_t nchannels = aRttov_.getNchannels();
+  std::size_t nsurfaces = 1;
 
   std::vector <rttov::Profile> profiles;   // RTTOV Profile object
   for (std::size_t p = 0; p < nprofiles; p++) {
-      rttov::Profile aProfile(nlevels);
+      rttov::Profile aProfile(nlevels+ 1, nsurfaces);
       profiles.push_back(aProfile);
   }
 
@@ -115,16 +122,20 @@ void rttovcpp_interface(const GeoVaLs & geovals, const ioda::ObsSpace & odb_,
   //----------------------------------------------------
     // 3.1.1 Retrieve pressure in hPa
       std::vector<std::vector<double>> tmpvar3d;    // [nlevels][nprofiles]
+      std::vector<double> phalf1d(nlevels+1, 0.0); // one single vertical profile
+      std::vector<double> ps(nprofiles, 0.0);
       for (std::size_t i = 0; i < nlevels; ++i) {
-         geovals.getAtLevel(tmpvar2d, oops::Variable{"air_pressure"}, i);  // get one level P
+         geovals.getAtLevel(tmpvar2d, oops::Variable{"air_pressure_levels"}, i);  // get one level P at half-level
          tmpvar3d.push_back(tmpvar2d);  // push one level P into 3D P
       }
+      geovals.get(ps, oops::Variable{"surface_pressure"});  // get one level Ps
+      tmpvar3d.push_back(ps);
       for (std::size_t i = 0; i < nprofiles; ++i) {
-          for (std::size_t k = 0; k < nlevels; ++k) {
+          for (std::size_t k = 0; k < nlevels+1; ++k) {
             // get one vertical profile, rttov level index is from top to bottom
-              tmpvar1d[k] = tmpvar3d[k][i]*0.01;
+              phalf1d[k]  = tmpvar3d[k][i] * 0.01;      
           }
-          profiles[i].setP(tmpvar1d);
+          profiles[i].setPHalf(phalf1d);
       }
      // release memory of tmpvar3d variable
       std::vector<std::vector<double>>().swap(tmpvar3d);
@@ -160,7 +171,6 @@ void rttovcpp_interface(const GeoVaLs & geovals, const ioda::ObsSpace & odb_,
 
     // 3.2 2D surface fields at obs locations
     //-------------------------------------------
-      std::vector<double> ps(nprofiles, 0.0);
       std::vector<double> t2m(nprofiles, 0.0);
       std::vector<double> q2m(nprofiles, 0.0);
       std::vector<double> u10(nprofiles, 0.0);
@@ -203,6 +213,7 @@ void rttovcpp_interface(const GeoVaLs & geovals, const ioda::ObsSpace & odb_,
       util::DateTime time1;
       int year, month, day, hour, minute, second;
       int surftype;
+      int isurf = 0; // 
 
       for (std::size_t i = 0; i < nprofiles; i++) {
          profiles[i].setGasUnits(rttov::kg_per_kg);
@@ -219,18 +230,19 @@ void rttovcpp_interface(const GeoVaLs & geovals, const ioda::ObsSpace & odb_,
          profiles[i].setDateTimes(year, month, day, hour, minute, second);
 
          // 0:land, 1:sea, 2:sea-ice, (sea, fresh water) temporary
-         profiles[i].setSurfType(surftype, 0);
+         profiles[i].setSurfType(isurf, surftype, 0);
 
          // Ps (hPa), t2m (k), q2m (kg/kg), u10/v10 (m/s), wind fetch
-         profiles[i].setS2m(ps[i]*0.01, t2m[i], q2m[i], u10[i], v10[i], 100000.);
+         //profiles[i].setS2m(ps[i]*0.01, t2m[i], q2m[i], u10[i], v10[i], 100000.);
+         profiles[i].setNearSurface(isurf, t2m[i], q2m[i], u10[i], v10[i], 100000.);
 
          // tskin (k), salinity (35), snow_fraction, foam_fraction, fastem_coef_1-5, specularity
          // over sea/land
-         profiles[i].setSkin(tskin[i], 35., 0., 0., 3.0, 5.0, 15.0, 0.1, 0.3, 0.);
+         profiles[i].setSkin(isurf, tskin[i], 35., 0., 0., 3.0, 5.0, 15.0, 0.1, 0.3);
          if ( surftype == 2 )  // over seaice, newice(no snow)
-           profiles[i].setSkin(tskin[i], 35., 0., 0., 2.9, 3.4, 27.0, 0.0, 0.0, 0.);
+           profiles[i].setSkin(isurf, tskin[i], 35., 0., 0., 2.9, 3.4, 27.0, 0.0, 0.0);
 
-         profiles[i].setAngles(satzen[i], satazi[i], sunzen[i], sunazi[i]);
+         profiles[i].setAngles(std::abs(satzen[i]), satazi[i], sunzen[i], sunazi[i]); // satzen must > 0, why?
       }
   }  // end try
   catch (std::exception& e) {
@@ -242,7 +254,7 @@ void rttovcpp_interface(const GeoVaLs & geovals, const ioda::ObsSpace & odb_,
   try {
       aRttov_.setTheProfiles(profiles);
   }
-  catch (exception& e) {
+  catch (std::exception& e) {
       oops::Log::error() << "Error setting the profiles " << e.what() << std::endl;
   }
 

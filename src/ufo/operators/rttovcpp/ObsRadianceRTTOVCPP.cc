@@ -36,7 +36,7 @@ ObsRadianceRTTOVCPP::ObsRadianceRTTOVCPP(const ioda::ObsSpace & odb,
   // need to be consistent with those defined in ufo_variables_mod.F90
   //-----------------------------------------------------------------------------
   const std::vector<std::string> vv{
-    "air_pressure",
+    "air_pressure_levels",
     "air_temperature",
     "specific_humidity",
     "surface_pressure",

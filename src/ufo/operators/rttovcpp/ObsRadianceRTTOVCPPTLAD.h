@@ -19,7 +19,7 @@
 #include "ufo/LinearObsOperatorBase.h"
 #include "ufo/operators/rttovcpp/ObsRadianceRTTOVCPPParameters.h"
 
-#include "rttov/wrapper/RttovSafe.h"
+#include "RttovSafe.h"
 
 namespace ioda {
   class ObsSpace;
