@@ -72,7 +72,12 @@ class ObsDiagnostics : public util::Printable,
 
   void write(const eckit::Configuration & config) const {
     gdiags_.write(config);
-  }
+  }  
+
+  // Access to the underlying GeoVaLs
+  GeoVaLs & geovals() { return gdiags_; }
+  const GeoVaLs & geovals() const { return gdiags_; }
+
  private:
   void print(std::ostream &) const;
   const ioda::ObsSpace & obsdb_;

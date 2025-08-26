@@ -63,11 +63,12 @@ ObsRadianceRTTOVCPPTLAD::~ObsRadianceRTTOVCPPTLAD() {
 
 // -----------------------------------------------------------------------------
 
-void ObsRadianceRTTOVCPPTLAD::setTrajectory(const GeoVaLs & geovals, ObsDiagnostics &,
+void ObsRadianceRTTOVCPPTLAD::setTrajectory(const GeoVaLs & geovals, ObsDiagnostics & d,
                                             const QCFlags_t & qc_flags) {
 //
   ufo::rttovcpp_interface(geovals, obsspace(), aRttov_, CoefFileName, channels_,
                           nlevels, skip_profile);
+  ufo::rttovcpp_setYdiag(geovals, aRttov_, d, channels_, nlevels);
 
   oops::Log::trace() << "ObsRadianceRTTOVCPPTLAD::setTrajectory done" << std::endl;
 }

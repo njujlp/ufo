@@ -72,17 +72,22 @@ void rttovcpp_interface(const GeoVaLs & geovals, const ioda::ObsSpace & odb_,
   aRttov_.options.setVerboseWrapper(true);  // more output info
   aRttov_.options.setCO2Data(false);
   aRttov_.options.setStoreRad(true);
+  aRttov_.options.setStoreRad2(true);
+  aRttov_.options.setStoreEmisTerms(true);
   //aRttov_.options.setDoCheckinput(false);   // RTTOV14 removed this method
+  aRttov_.options.setCheckProfiles(false);
   //aRttov_.options.setSwitchrad(true);       // RTTOV14 removed this method
   aRttov_.options.setHydrometeors(false); // Deactivate cloud simulations
-  aRttov_.options.setOverlapParam(rttov::cloud_overlap_2col_weighted); // Hydro-weighted 2-col overlap
+  //aRttov_.options.setOverlapParam(rttov::cloud_overlap_2col_weighted); // Hydro-weighted 2-col overlap
   aRttov_.options.setStoreEmisRefl(true); // Enable emissivity/reflectance retrieval
+  aRttov_.options.setStoreTrans(true); // Enable Transmittance retrieval
+  //aRttov_.options.setStoreDiagOutput(true); // Enable diag retrieval
 
-
-  // 1.2 for Microwave Sensors
+  // 1.2 for Microwave Emissivity model over sea
   //aRttov_.options.setFastemVersion(6);      // RTTOV14 removed this method
+  aRttov_.options.setMwSeaEmisModel(2);  // FASTEM6, 3=SURFEM-Ocean
   //aRttov_.options.setSupplyFoamFraction(false); //RTTOV14 removed this method
-  //aRttov_.options.setUseFoamFraction(false);
+  aRttov_.options.setUseFoamFraction(false);
   //aRttov_.options.setApplyBandCorrection(true); // RTTOV14 removed this method
 
   // 1.3 Load coef for subset channels of an instrument
@@ -133,7 +138,7 @@ void rttovcpp_interface(const GeoVaLs & geovals, const ioda::ObsSpace & odb_,
       for (std::size_t i = 0; i < nprofiles; ++i) {
           for (std::size_t k = 0; k < nlevels+1; ++k) {
             // get one vertical profile, rttov level index is from top to bottom
-              phalf1d[k]  = tmpvar3d[k][i] * 0.01;      
+              phalf1d[k]  = tmpvar3d[k][i] * 0.01;
           }
           profiles[i].setPHalf(phalf1d);
       }
@@ -178,8 +183,11 @@ void rttovcpp_interface(const GeoVaLs & geovals, const ioda::ObsSpace & odb_,
       std::vector<double> tskin(nprofiles, 0.0);
       std::vector<int>    landmask(nprofiles);  // 1: land, 0:ocean
       std::vector<double> seaice_frac(nprofiles, 0.0);
+      std::vector<double> elev(nprofiles, 0.0);
 
     // Retrieve surface variables
+      //geovals.get(elev, oops::Variable{"surface_altitude"});  // in m
+      geovals.get(elev, oops::Variable{"surface_geopotential_height"});  // in m
       geovals.get(ps, oops::Variable{"surface_pressure"});  // in Pa, get one level Ps
       geovals.get(t2m, oops::Variable{"surface_temperature"});  // Kelvin
       geovals.get(q2m, oops::Variable{"specific_humidity_at_two_meters_above_surface"});  // kg/kg
@@ -196,7 +204,6 @@ void rttovcpp_interface(const GeoVaLs & geovals, const ioda::ObsSpace & odb_,
       std::vector<double> sunazi(nprofiles, 0.0);  // not always needed
       std::vector<double> lat(nprofiles, 0.0);
       std::vector<double> lon(nprofiles, 0.0);
-      std::vector<double> elev(nprofiles, 0.0);
       std::vector<util::DateTime> times(nprofiles);
 
       odb_.get_db("MetaData", "sensorZenithAngle",  satzen);  // in degree
@@ -205,7 +212,6 @@ void rttovcpp_interface(const GeoVaLs & geovals, const ioda::ObsSpace & odb_,
       odb_.get_db("MetaData", "solarAzimuthAngle",  sunazi);  // in degree
       odb_.get_db("MetaData", "latitude",  lat);  // -90~90 in degree
       odb_.get_db("MetaData", "longitude", lon);  // 0~360 in degree
-      odb_.get_db("MetaData", "height", elev);  // height above mean sea level in m
       odb_.get_db("MetaData", "dateTime", times);
 
   // 4. Call rttov set functions
@@ -213,7 +219,7 @@ void rttovcpp_interface(const GeoVaLs & geovals, const ioda::ObsSpace & odb_,
       util::DateTime time1;
       int year, month, day, hour, minute, second;
       int surftype;
-      int isurf = 0; // 
+      int isurf = 0;
 
       for (std::size_t i = 0; i < nprofiles; i++) {
          profiles[i].setGasUnits(rttov::kg_per_kg);
@@ -236,7 +242,7 @@ void rttovcpp_interface(const GeoVaLs & geovals, const ioda::ObsSpace & odb_,
          //profiles[i].setS2m(ps[i]*0.01, t2m[i], q2m[i], u10[i], v10[i], 100000.);
          profiles[i].setNearSurface(isurf, t2m[i], q2m[i], u10[i], v10[i], 100000.);
 
-         // tskin (k), salinity (35), snow_fraction, foam_fraction, fastem_coef_1-5, specularity
+         // isurf tskin (k), salinity (35), snow_fraction, foam_fraction, fastem_coef_1-5, specularity
          // over sea/land
          profiles[i].setSkin(isurf, tskin[i], 35., 0., 0., 3.0, 5.0, 15.0, 0.1, 0.3);
          if ( surftype == 2 )  // over seaice, newice(no snow)
@@ -261,16 +267,19 @@ void rttovcpp_interface(const GeoVaLs & geovals, const ioda::ObsSpace & odb_,
   // 5. Set the surface emissivity/reflectance arrays
   //    and associate with the Rttov objects
   //--------------------------------------------------
-  double surfemisrefl[2][nprofiles][nchannels];
+  double surfemisrefl[5][nprofiles][nsurfaces][nchannels];
 
-  aRttov_.setSurfEmisRefl(reinterpret_cast<double *>(surfemisrefl));
+  //aRttov_.setSurfEmisRefl(reinterpret_cast<double *>(surfemisrefl));
+  aRttov_.setSurfEmisRefl((double *)surfemisrefl);
 
 // Surface emissivity/reflectance arrays must be initialised *before every call to RTTOV*
 // Negative values will cause RTTOV to supply emissivity/BRDF values (i.e. equivalent to
 // calcemis/calcrefl TRUE - see RTTOV user guide)
-  for (int i = 0; i < nprofiles; i++) {
-      for (int j = 0; j < 2; j++) {
-          for (int c = 0; c < nchannels; c++) surfemisrefl[j][i][c] = -1.;
+  for (int j = 0; j < 5; j++) {
+      for (int p = 0; p < nprofiles; p++) {
+          for (int s = 0; s < nsurfaces; s++) {
+              for (int c = 0; c < nchannels; c++) surfemisrefl[j][p][s][c] = -1.;
+          }
       }
   }
 
@@ -284,9 +293,10 @@ void rttovcpp_interface(const GeoVaLs & geovals, const ioda::ObsSpace & odb_,
       oops::Log::error() << "Error running RTTOV K model " << e.what() << std::endl;
   }
 
-// 7. Check if Jacobian has any NaN and set to skip bad profiles
+// 7. Check if Jacobian or Bt has any NaN and set to skip bad profiles
 //----------------------------------------------------------------------
   std::vector<double> var_k(nlevels, 0.0);
+  std::vector <double> bt;
 
   for (size_t p = 0; p < nprofiles; p++) skip_profile.push_back(false);
 
@@ -300,9 +310,135 @@ void rttovcpp_interface(const GeoVaLs & geovals, const ioda::ObsSpace & odb_,
     }
   }
 
+  for (size_t p = 0; p < nprofiles; p++) {
+    bt = aRttov_.getBtRefl(p);
+    for (size_t c = 0; c < nchannels; c++) if (std::isnan(bt[c])) {skip_profile[p] = true;};
+  }
+
   oops::Log::trace() << "rttovcpp_interface done" << std::endl;
 }
 
 // -----------------------------------------------------------------------------
+/*! \brief Save RTTOV diagnostic outputs (YDiag) into ObsDiagnostics
+ *
+ * \details **rttovcpp_setYdiag()** extracts RTTOV forward and Jacobian
+ * diagnostics (e.g., surface emissivity, brightness temperature Jacobians,
+ * transmittances) from a single `RttovSafe` object and stores them in the
+ * `ObsDiagnostics` container. Variables are allocated only if requested by
+ * JEDI yaml configuration, and values are written per channel and per profile.
+ * Both 2D diagnostics (surface emissivity, BT clear-sky, Jacobians wrt surface
+ * parameters) and 3D diagnostics (layer transmittances) are supported.
+ *
+ * \param[in]  geovals   Reference to input model state (`GeoVaLs`) at obs locations
+ * \param[in]  aRttov_   Reference to the RTTOV wrapper object already run forward/Jacobian
+ * \param[inout] d       ObsDiagnostics object in which YDiag fields are stored
+ * \param[in]  channels_ Vector of channel indices for the sensor
+ * \param[in]  nlevels   Number of vertical levels in the model/RTTOV setup
+ *
+ */
+
+  void rttovcpp_setYdiag(const GeoVaLs & geovals, rttov::RttovSafe & aRttov_,  
+                        ObsDiagnostics & d, 
+                        const std::vector<int> channels_, 
+                        std::size_t & nlevels) {
+    std::size_t nprofiles = geovals.nlocs();
+    std::size_t nchannels = aRttov_.getNchannels();
+    // handle ydiag  
+    // default 2d variables
+    const std::vector<std::string> ydiag_varnames_2d{
+      "surface_emissivity",
+      "brightness_temperature_jacobian_surface_emissivity",
+      "brightness_temperature_jacobian_surface_temperature",
+      "brightness_temperature_assuming_clear_sky",    
+    };
+    // default 3d variables
+    const std::vector<std::string> ydiag_varnames_3d{
+      "transmittances_of_atmosphere_layer",
+    };
+    // combine 2d and 3d variables to ydiag_varnames
+    std::vector<std::string> ydiag_varnames = ydiag_varnames_2d;  
+    ydiag_varnames.insert(ydiag_varnames.end(),
+                        ydiag_varnames_3d.begin(),
+                        ydiag_varnames_3d.end());
+    // get ydiag object
+    ufo::GeoVaLs & ydiag = d.geovals();    
+    
+    // get variables in ydiag; just for debug
+    const oops::Variables & vars = ydiag.getVars(); 
+    for (const oops::Variable var : vars) {
+      oops::Log::info() << "ydiag name: " << var << std::endl;
+    }
+
+    size_t iSurface = 0; // support only one surface type for now.
+    for (const std::string &varname : ydiag_varnames) {
+      // check varname dimension
+      const bool is3d = std::find(ydiag_varnames_3d.begin(), ydiag_varnames_3d.end(), varname)
+                      != ydiag_varnames_3d.end();
+      const bool is2d = std::find(ydiag_varnames_2d.begin(), ydiag_varnames_2d.end(), varname)
+                      != ydiag_varnames_2d.end();    
+      int this_nlevels = 0;
+      if (is3d){      
+        this_nlevels = nlevels;
+      }else if (is2d){      
+        this_nlevels = 1;
+      }
+      
+      bool save_ydiag = true;
+      // allocate ydiag for all channels
+      for (std::size_t ich=0; ich<nchannels; ich++){
+        int ch = channels_[ich];
+        oops::Variables this_var({varname+"_"+std::to_string(ch)});
+        if (ydiag.has(this_var[0])) {        
+          ydiag.allocate(this_nlevels,this_var);
+        }else{
+          // this ydiag is not needed according to JEDI Yaml settings.
+          // no ydiag related QC or BC procedures; no ydiag output request.
+          save_ydiag = false;
+        }
+      }
+      // save RTTOV output to ydiag
+      if (save_ydiag){  
+        std::vector<double> res;    
+        if (is2d){
+          std::vector<double> prof_1(1, 0.0);
+          for (size_t p = 0; p < nprofiles; p++) {
+            if (varname.find("brightness_temperature_assuming_clear_sky") != std::string::npos){
+              res = aRttov_.getBtClear(p);
+            }else if (varname.find("brightness_temperature_jacobian_surface_emissivity") != std::string::npos){
+              res = aRttov_.getSurfEmisK(p,iSurface);
+              oops::Log::info() << "emisK= " << res   << std::endl;
+            }else if (varname.find("brightness_temperature_jacobian_surface_temperature") != std::string::npos){
+              res = aRttov_.getTskinEffK(p,iSurface);
+              oops::Log::info() << "TskinEffK= " << res   << std::endl;
+            }else if (varname.find("surface_emissivity") != std::string::npos){
+              res = aRttov_.getSurfEmis(p,iSurface);
+              oops::Log::info() << "SurfEmis= " << res   << std::endl;
+            }
+            // set values for each channel
+            for (std::size_t ich=0; ich<nchannels; ich++){
+              const int ch = channels_[ich];
+              oops::Variables this_var({varname+"_"+std::to_string(ch)});            
+              prof_1[0] = res[ich];
+              ydiag.putProfile(prof_1,this_var[0],p);
+            }
+          }
+        }else if (is3d){
+          std::vector<double> prof_n(nlevels, 0.0);        
+          for (int p = 0; p < nprofiles; p++) {
+            for (int ich=0; ich<nchannels; ich++){
+              const int ch = channels_[ich];
+              oops::Variables this_var({varname+"_"+std::to_string(ch)});            
+              if (varname.find("transmittances_of_atmosphere_layer") != std::string::npos){
+                res = aRttov_.getTauLevels(p, ich);
+              }
+              std::vector<double> subprof(res.begin(), res.end() - 1);
+              ydiag.putProfile(subprof,this_var[0],p);            
+            }            
+          }
+        }
+      }
+    }
+  }
+  // -----------------------------------------------------------------------------
 
 }  // namespace ufo

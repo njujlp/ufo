@@ -47,7 +47,11 @@ ObsRadianceRTTOVCPP::ObsRadianceRTTOVCPP(const ioda::ObsSpace & odb,
     "skin_temperature",
     "seaice_fraction",
     "landmask",
-    "surface_geopotential_height"
+    "surface_geopotential_height",
+    //"land_area_fraction",
+    //"ice_area_fraction",
+    //"surface_snow_area_fraction",
+    //"surface_altitude",
   };
 
   for (size_t jvar = 0; jvar < vv.size(); ++jvar) {
@@ -81,6 +85,7 @@ void ObsRadianceRTTOVCPP::simulateObs(const GeoVaLs & geovals, ioda::ObsVector &
   std::vector<bool>  skip_profile;
   ufo::rttovcpp_interface(geovals, odb_, aRttov_, CoefFileName, channels_,
                           nlevels, skip_profile);
+  ufo::rttovcpp_setYdiag(geovals, aRttov_, d, channels_, nlevels);
 
 // ------------------------------------------------------------------------
 // Obtain calculated brightness temperature for all profiles/channels

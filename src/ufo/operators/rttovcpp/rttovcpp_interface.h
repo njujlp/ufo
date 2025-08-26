@@ -42,6 +42,11 @@ void rttovcpp_interface(const GeoVaLs &, const ioda::ObsSpace & odb_,
                         rttov::RttovSafe & aRttov_, const std::string CoefFileName,
                         const std::vector<int> channels_, std::size_t & nlevels,
                         std::vector<bool> & skip_profile);
+                        
+void rttovcpp_setYdiag(const GeoVaLs &, rttov::RttovSafe & aRttov_,  
+                      ObsDiagnostics & d, 
+                      const std::vector<int> channels_, std::size_t & nlevels);
+ 
 
 // -----------------------------------------------------------------------------
 
